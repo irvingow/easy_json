@@ -14,3 +14,4 @@ set(CXX_FLAGS "${CXX_FLAGS} -std=c++11 -Wall -pedantic -Werror -Wextra")
 
 add_subdirectory(Step1)
 add_subdirectory(Step2)
+add_subdirectory(Step3)
