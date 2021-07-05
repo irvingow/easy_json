@@ -5,6 +5,7 @@
 #include "ljson.h"
 #include <cassert> // assert()
 #include <cmath>   // HUGE_VAL
+#include <algorithm>
 
 #ifndef LJSON_PARSE_STACK_INIT_SIZE
 #define LJSON_PARSE_STACK_INIT_SIZE 256
@@ -30,17 +31,21 @@ public:
   LJSON_STATE parse_value(const std::shared_ptr<ljson_value> &value);
   void encode_uft8(unsigned u);
   LJSON_STATE parse_string(const std::shared_ptr<ljson_value> &value);
+  LJSON_STATE parse_array(const std::shared_ptr<ljson_value> &value);
 
 public:
   static const char* parse_hex4(const char* p, unsigned *u);
   void put_char(char ch);
   void *push(size_t size);
   void *pop(size_t size);
+  void push_array(std::shared_ptr<ljson_value> value);
+  std::vector<std::shared_ptr<ljson_value>> pop_array(size_t size);
 
 public:
   const char *json_;
   char *stack_;
   size_t size_, top_;
+  std::vector<std::shared_ptr<ljson_value>> array_buffer_;
   /*
    * @ch: next expected character
    * @noted: exit if next character is not ch
@@ -77,6 +82,23 @@ void * ljson_context::push(size_t size) {
 void * ljson_context::pop(size_t size) {
   assert(top_ >= size);
   return stack_ + (top_ -= size);
+}
+
+void ljson_context::push_array(std::shared_ptr<ljson_value> value) {
+  array_buffer_.push_back(std::move(value));
+}
+
+std::vector<std::shared_ptr<ljson_value> > ljson_context::pop_array(size_t size) {
+  assert(size <= array_buffer_.size());
+  std::vector<std::shared_ptr<ljson_value>> pops;
+  while (size > 0) {
+    size--;
+    pops.push_back(array_buffer_.back());
+    array_buffer_.pop_back();
+  }
+  // notice that reverse is must, we need to keep the order as elements were pushed.
+  std::reverse(pops.begin(), pops.end());
+  return pops;
 }
 
 void ljson_context::expect_next(const char &ch) {
@@ -130,11 +152,10 @@ LJSON_STATE ljson_context::parse_number(const std::shared_ptr<ljson_value> &valu
   }
   errno = 0;
   auto number = strtod(json_, nullptr);
-  // notice that here, we also set value.type to LJSON_NUMBER
+  // in set_number we set the type to LJSON_NUMBER
   value->set_number(number);
   if (errno == ERANGE && (number == HUGE_VAL || number == -HUGE_VAL)) {
-    // because number is invalid, so we have to set the
-    // type to LJSON_NULL
+    // we have to set back value type to LSJON_NULL
     value->set_type(LJSON_NULL);
     return LJSON_PARSE_NUMBER_TOO_BIG;
   }
@@ -233,6 +254,42 @@ LJSON_STATE ljson_context::parse_string(const std::shared_ptr<ljson_value> &valu
   }
 }
 
+LJSON_STATE ljson_context::parse_array(const std::shared_ptr<ljson_value> &value) {
+  size_t size = 0;
+  expect_next('[');
+  parse_whitespace();
+  if (*json_ == ']') {
+    json_++;
+    value->set_type(LJSON_ARRAY);
+    return LJSON_PARSE_OK;
+  }
+  LJSON_STATE ret;
+  for (;;) {
+    auto tmp_value = ljson_value::create();
+    if ((ret = parse_value(tmp_value)) != LJSON_PARSE_OK)
+      break;
+    push_array(tmp_value);
+    size++;
+    parse_whitespace();
+    if (*json_ == ',') {
+      json_++;
+      parse_whitespace();
+    } else if (*json_ == ']') {
+      json_++;
+      value->set_type(LJSON_ARRAY);
+      auto buffer = pop_array(size);
+      value->set_array(buffer);
+      return LJSON_PARSE_OK;
+    } else {
+      ret = LJSON_PARSE_MISS_COMMA_OR_SQUARE_BRACKET;
+      break;
+    }
+  }
+  // Pop the value in the buffer
+  pop_array(size);
+  return ret;
+}
+
 LJSON_STATE ljson_context::parse_value(const std::shared_ptr<ljson_value> &value) {
   switch (*json_) {
     case 't': return parse_literal(value, "true", LJSON_TRUE);
@@ -240,6 +297,7 @@ LJSON_STATE ljson_context::parse_value(const std::shared_ptr<ljson_value> &value
     case 'n': return parse_literal(value, "null", LJSON_NULL);
     default: return parse_number(value);
     case '"': return parse_string(value);
+    case '[': return parse_array(value);
     case '\0': return LJSON_PARSE_EXPECT_VALUE;
   }
 }
@@ -264,13 +322,24 @@ void ljson_value::destroy() {
 }
 
 const char * ljson_value::get_string() const {
-  assert_is_string();
+  assert_type(LJSON_STRING);
   return str_.str;
 }
 
 size_t ljson_value::get_string_length() const {
-  assert_is_string();
+  assert_type(LJSON_STRING);
   return str_.len;
+}
+
+size_t ljson_value::get_array_size() const {
+  assert_type(LJSON_ARRAY);
+  return elements_.size();
+}
+
+std::shared_ptr<ljson_value> ljson_value::get_array_element(size_t index) const {
+  assert_type(LJSON_ARRAY);
+  assert(index < elements_.size());
+  return elements_[index];
 }
 
 void ljson_value::set_string(const char *s, size_t len) {
@@ -281,6 +350,14 @@ void ljson_value::set_string(const char *s, size_t len) {
   str_.str[len] = '\0';
   str_.len = len;
   type_ = LJSON_STRING;
+}
+
+void ljson_value::set_array(std::vector<std::shared_ptr<ljson_value>> array) {
+  elements_ = std::move(array);
+}
+
+void ljson_value::array_push(std::shared_ptr<ljson_value> value) {
+  elements_.push_back(std::move(value));
 }
 
 int ljson_value::parse(const char *json) {

@@ -27,6 +27,8 @@ do { \
 #define EXPECT_TRUE(actual) EXPECT_EQ_BASE((actual) != 0, "true", "false", "%s")
 #define EXPECT_FALSE(actual) EXPECT_EQ_BASE((actual) != 0, "false", "true", "%s")
 
+#define EXPECT_EQ_SIZE_T(expect, actual) EXPECT_EQ_BASE((expect) == (actual), (size_t) expect, (size_t)actual, "%zu")
+
 static void test_parse_null() {
   auto value = ljson_value::create();
   EXPECT_EQ_INT(LJSON_PARSE_OK, value->parse("null"));
@@ -107,6 +109,42 @@ static void test_parse_string() {
   TEST_STRING("\xF0\x9D\x84\x9E", "\"\\ud834\\udd1e\"");  /* G clef sign U+1D11E */
 }
 
+static void test_parse_array() {
+  {
+    auto value = ljson_value::create();
+    EXPECT_EQ_INT(LJSON_PARSE_OK, value->parse("[ ]"));
+    EXPECT_EQ_INT(LJSON_ARRAY, value->get_type());
+    EXPECT_EQ_SIZE_T(0, value->get_array_size());
+  }
+  {
+    auto value = ljson_value::create();
+    EXPECT_EQ_INT(LJSON_PARSE_OK, value->parse("[ null, false, true, 123, \"abs\" ]"));
+    EXPECT_EQ_INT(LJSON_ARRAY, value->get_type());
+    EXPECT_EQ_SIZE_T(5, value->get_array_size());
+    EXPECT_EQ_INT(LJSON_NULL, value->get_array_element(0)->get_type());
+    EXPECT_EQ_INT(LJSON_FALSE, value->get_array_element(1)->get_type());
+    EXPECT_EQ_INT(LJSON_TRUE, value->get_array_element(2)->get_type());
+    EXPECT_EQ_INT(LJSON_NUMBER, value->get_array_element(3)->get_type());
+    EXPECT_EQ_INT(LJSON_STRING, value->get_array_element(4)->get_type());
+  }
+  {
+    auto value = ljson_value::create();
+    EXPECT_EQ_INT(LJSON_PARSE_OK, value->parse("[ [ ] , [ 0 ], [ 0 , 1 ], [ 0 , 1 , 2 ] ]"));
+    EXPECT_EQ_INT(LJSON_ARRAY, value->get_type());
+    EXPECT_EQ_SIZE_T(4, value->get_array_size());
+    for (size_t i = 0; i < 4; ++i) {
+      auto element = value->get_array_element(i);
+      EXPECT_EQ_INT(LJSON_ARRAY, element->get_type());
+      EXPECT_EQ_SIZE_T(i, element->get_array_size());
+      for (size_t j = 0; j < i; j++) {
+        auto inside = element->get_array_element(j);
+        EXPECT_EQ_INT(LJSON_NUMBER, inside->get_type());
+        EXPECT_EQ_DOUBLE((double)j, inside->get_number());
+      }
+    }
+  }
+}
+
 #define TEST_ERROR(error, json)\
     do {\
         auto value = ljson_value::create();\
@@ -168,6 +206,30 @@ static void test_parse_invalid_string_char() {
   TEST_ERROR(LJSON_PARSE_INVALID_STRING_CHAR, "\"\x1F\"");
 }
 
+static void test_parse_invalid_unicode_hex() {
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u0\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u01\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u012\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u/000\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\uG000\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u0/00\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u0G00\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u00/0\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u00G0\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u000/\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u000G\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_HEX, "\"\\u 123\"");
+}
+
+static void test_parse_invalid_unicode_surrogate() {
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uDBFF\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\\\\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\uDBFF\"");
+  TEST_ERROR(LJSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\uE000\"");
+}
+
 static void test_access_null() {
   auto value = ljson_value::create();
   value->set_string("1", 1);
@@ -205,6 +267,7 @@ static void test_parse() {
   test_parse_true();
   test_parse_number();
   test_parse_string();
+  test_parse_array();
   test_parse_expect_value();
   test_parse_invalid_value();
   test_parse_root_not_singular();
@@ -212,7 +275,11 @@ static void test_parse() {
   test_parse_missing_quotation_mark();
   test_parse_invalid_string_escape();
   test_parse_invalid_string_char();
+  test_parse_invalid_unicode_hex();
+  test_parse_invalid_unicode_surrogate();
+}
 
+static void test_access() {
   test_access_null();
   test_access_boolean();
   test_access_number();
@@ -221,6 +288,7 @@ static void test_parse() {
 
 int main() {
   test_parse();
+  test_access();
   printf("%d/%d (%3.2f%%) passed\n", test_pass, test_count, test_pass * 100.0 / test_count);
   return main_ret;
 }
