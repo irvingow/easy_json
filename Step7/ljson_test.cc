@@ -2,6 +2,7 @@
 // Created by 刘文景 on 2021/7/3.
 //
 #include "ljson.h"
+#include <iostream>
 
 using namespace ljson;
 
@@ -20,6 +21,16 @@ do { \
     }\
 } while(0)\
 
+#define EXPECT_EQ_STRING(expect, actual) \
+do { \
+  test_count++; \
+  if (expect == actual) \
+    test_pass++; \
+  else { \
+    std::cout << "file:" << __FILE__ << " line:" << __LINE__  << " expect:" << expect << " actual:" << actual << "\n"; \
+  } \
+} while(0)\
+
 #define EXPECT_NULL(val) \
 do { \
   test_count++; \
@@ -33,8 +44,6 @@ do { \
 
 #define EXPECT_EQ_INT(expect, actual) EXPECT_EQ_BASE((expect == actual), expect, actual, "%d")
 #define EXPECT_EQ_DOUBLE(expect, actual) EXPECT_EQ_BASE((expect == actual), expect, actual, "%.17g")
-#define EXPECT_EQ_STRING(expect, actual, length) \
-    EXPECT_EQ_BASE(sizeof(expect) - 1 == length && memcmp(expect, actual, length) == 0, expect, actual, "%s")
 #define EXPECT_TRUE(actual) EXPECT_EQ_BASE((actual) != 0, "true", "false", "%s")
 #define EXPECT_FALSE(actual) EXPECT_EQ_BASE((actual) != 0, "false", "true", "%s")
 
@@ -111,7 +120,7 @@ static void test_parse_number() {
         EXPECT_EQ_INT(LJSON_PARSE_OK, ret);\
         EXPECT_EQ_INT(LJSON_STRING, value->get_type());\
         auto str = ljson_string::get_value_helper(value->get_value());\
-        EXPECT_EQ_STRING(expect, str.data(), str.size());\
+        EXPECT_EQ_STRING(expect, str);\
     } while(0)
 
 static void test_parse_string() {
@@ -119,7 +128,8 @@ static void test_parse_string() {
   TEST_STRING("Hello", "\"Hello\"");
   TEST_STRING("Hello\nWorld", "\"Hello\\nWorld\"");
   TEST_STRING("\" \\ / \b \f \n \r \t", "\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t\"");
-  TEST_STRING("Hello\0World", "\"Hello\\u0000World\"");
+  std::string test_str("Hello\0World",11);
+  TEST_STRING(test_str, "\"Hello\\u0000World\"");
   TEST_STRING("\x24", "\"\\u0024\"");         /* Dollar sign U+0024 */
   TEST_STRING("\xC2\xA2", "\"\\u00A2\"");     /* Cents sign U+00A2 */
   TEST_STRING("\xE2\x82\xAC", "\"\\u20AC\""); /* Euro sign U+20AC */
@@ -197,20 +207,20 @@ static void test_parse_objects() {
     EXPECT_EQ_INT(LJSON_OBJECT, value->get_type());
     auto objects = ljson_objects::get_value_helper(value->get_value());
     EXPECT_EQ_SIZE_T(7, objects.size());
-    EXPECT_EQ_STRING("n", objects[0]->key.data(), objects[0]->key.size());
+    EXPECT_EQ_STRING("n", objects[0]->key);
     EXPECT_EQ_INT(LJSON_NULL, objects[0]->value->get_type());
-    EXPECT_EQ_STRING("f", objects[1]->key.data(), objects[1]->key.size());
+    EXPECT_EQ_STRING("f", objects[1]->key);
     EXPECT_EQ_INT(LJSON_FALSE, objects[1]->value->get_type());
-    EXPECT_EQ_STRING("t", objects[2]->key.data(), objects[2]->key.size());
+    EXPECT_EQ_STRING("t", objects[2]->key);
     EXPECT_EQ_INT(LJSON_TRUE, objects[2]->value->get_type());
-    EXPECT_EQ_STRING("i", objects[3]->key.data(), objects[3]->key.size());
+    EXPECT_EQ_STRING("i", objects[3]->key);
     EXPECT_EQ_INT(LJSON_NUMBER, objects[3]->value->get_type());
     EXPECT_EQ_DOUBLE(123.0, ljson_number::get_value_helper(objects[3]->value->get_value()));
-    EXPECT_EQ_STRING("s", objects[4]->key.data(), objects[4]->key.size());
+    EXPECT_EQ_STRING("s", objects[4]->key);
     EXPECT_EQ_INT(LJSON_STRING, objects[4]->value->get_type());
     auto str = ljson_string::get_value_helper(objects[4]->value->get_value());
-    EXPECT_EQ_STRING("abc", str.data(), str.length());
-    EXPECT_EQ_STRING("a", objects[5]->key.data(), objects[5]->key.size());
+    EXPECT_EQ_STRING("abc", str);
+    EXPECT_EQ_STRING("a", objects[5]->key);
     EXPECT_EQ_INT(LJSON_ARRAY, objects[5]->value->get_type());
     auto array = ljson_array::get_value_helper(objects[5]->value->get_value());
     EXPECT_EQ_SIZE_T(3, array.size());
@@ -219,7 +229,7 @@ static void test_parse_objects() {
       EXPECT_EQ_INT(LJSON_NUMBER, element->get_type());
       EXPECT_EQ_DOUBLE(i + 1.0, ljson_number::get_value_helper(element->get_value()));
     }
-    EXPECT_EQ_STRING("o", objects[6]->key.data(), objects[6]->key.size());
+    EXPECT_EQ_STRING("o", objects[6]->key);
     {
       EXPECT_EQ_INT(LJSON_OBJECT, objects[6]->value->get_type());
       auto inside_objects = ljson_objects::get_value_helper(objects[6]->value->get_value());
@@ -371,10 +381,10 @@ static void test_access_number() {
 static void test_access_string() {
   auto value = ljson_string::create("");
   auto str = ljson_string::get_value_helper(value->get_value());
-  EXPECT_EQ_STRING("", str.data(), str.size());
+  EXPECT_EQ_STRING("", str);
   value = ljson_string::create("Hello");
   str = ljson_string::get_value_helper(value->get_value());
-  EXPECT_EQ_STRING("Hello", str.data(), str.size());
+  EXPECT_EQ_STRING("Hello", str);
 }
 
 static void test_parse() {
